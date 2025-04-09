@@ -3,6 +3,7 @@ pub mod commands;
 use clap::Parser;
 use colored::Colorize;
 use commands::{Cli, SubCommands};
+use regex::Regex;
 use reqwest::Client;
 use std::error::Error;
 use std::fs::File;
@@ -31,24 +32,48 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Some(SubCommands::Search { target_search }) => {
             let templates = get_templates(&client).await?;
-            let matched_languages = templates
-                .iter()
-                .filter(|template| {
-                    template.eq_ignore_ascii_case(&target_search)
-                });
+
+            let matched_languages: Vec<&String> = 
+                templates
+                    .iter()
+                    .filter(|template| {
+                        template.contains(&target_search) || 
+                        template.eq_ignore_ascii_case(&target_search)
+                    })
+                    .collect();
 
             for match_language in matched_languages {
                 println!("{}", match_language.green());
             }
         }
+        Some(SubCommands::RegexSearch { regex }) => {
+            let templates = get_templates(&client).await?;
+            
+            println!("Current using regex is {}", regex.yellow().italic());
+            
+            let regex = Regex::new(&regex).unwrap();
 
-        None => {
-            let args = cli.generate_args;
-            generate_gitignore(&client, &args.template_languages, &args.output).await?;
+            let matched_languages: Vec<&String> = 
+                templates
+                .iter()
+                    .filter(|template| {
+                        regex.is_match(&template)
+                    })
+                    .collect();
+
+            for match_language in matched_languages {
+                println!("{}", match_language.green());
+            }
+        }
+        Some(SubCommands::Generate { template_language, output }) => {
+            generate_gitignore(&client, &template_language, &output).await?;
             println!(
                 "Successfully generated {} with templates: {:?}",
-                args.output, args.template_languages
+                output, template_language
             );
+        },
+        None => {
+
         }
     }
     Ok(())
