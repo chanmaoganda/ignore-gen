@@ -82,33 +82,31 @@ async fn get_templates(client: &Client) -> Result<Vec<String>, Box<dyn Error>> {
 
 async fn generate_gitignore(
     client: &Client,
-    templates: &[String],
+    template: &str,
     output_file: &str,
 ) -> Result<(), Box<dyn Error>> {
     let mut output = String::new();
     output.push_str("# Generated gitignore file\n");
     output.push_str("# Created with ignore-gen\n\n");
 
-    for template in templates {
-        let template_name = if template.ends_with(".gitignore") {
-            template.to_string()
-        } else {
-            format!("{}.gitignore", template)
-        };
+    let template_name = if template.ends_with(".gitignore") {
+        template.to_string()
+    } else {
+        format!("{}.gitignore", template)
+    };
 
-        let url = format!("{}/{}", RAW_CONTENT_BASE_URL, template_name);
-        let response = client.get(&url).send().await?;
+    let url = format!("{}/{}", RAW_CONTENT_BASE_URL, template_name);
+    let response = client.get(&url).send().await?;
 
-        if !response.status().is_success() {
-            eprintln!("Warning: Template '{}' not found", template);
-            continue;
-        }
-
-        let content = response.text().await?;
-        output.push_str(&format!("# ===== {} =====\n", template));
-        output.push_str(&content);
-        output.push_str("\n\n");
+    if !response.status().is_success() {
+        eprintln!("Warning: Template '{}' not found", template);
     }
+
+    let content = response.text().await?;
+    output.push_str(&format!("# ===== {} =====\n", template));
+    output.push_str(&content);
+    output.push_str("\n\n");
+    output.push_str("# End of Generated File with ignore-gen\n\n");
 
     let path = Path::new(output_file);
     let mut file = File::create(path)?;

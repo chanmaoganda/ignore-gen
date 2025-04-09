@@ -13,7 +13,7 @@ pub struct Cli {
 pub struct GenerateArgs {
     /// Template names (e.g., Rust, Golang, Python, Node)
     #[arg(short = 't', long = "template")]
-    pub template_languages: Vec<String>,
+    pub template_languages: String,
 
     /// Output file
     #[arg(short, long, default_value = ".gitignore")]
