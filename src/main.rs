@@ -1,0 +1,123 @@
+pub mod commands;
+
+use clap::Parser;
+use colored::Colorize;
+use commands::{Cli, SubCommands};
+use reqwest::Client;
+use std::error::Error;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
+use std::time::Duration;
+
+const GITHUB_API_URL: &str = "https://api.github.com/repos/github/gitignore/contents";
+const RAW_CONTENT_BASE_URL: &str = "https://raw.githubusercontent.com/github/gitignore/main";
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let cli = Cli::parse();
+
+    let client = Client::builder()
+        .user_agent("gitignore-generator")
+        .timeout(Duration::from_secs(30))
+        .build()?;
+
+    match cli.extra_command {
+        Some(SubCommands::List) => {
+            let templates = get_templates(&client).await?;
+            for template in templates {
+                println!("{template}");
+            }
+        }
+        Some(SubCommands::Search { target_search }) => {
+            let templates = get_templates(&client).await?;
+            let matched_languages = templates
+                .iter()
+                .filter(|template| {
+                    template.eq_ignore_ascii_case(&target_search)
+                });
+
+            for match_language in matched_languages {
+                println!("{}", match_language.green());
+            }
+        }
+
+        None => {
+            let args = cli.generate_args;
+            generate_gitignore(&client, &args.template_languages, &args.output).await?;
+            println!(
+                "Successfully generated {} with templates: {:?}",
+                args.output, args.template_languages
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn get_templates(client: &Client) -> Result<Vec<String>, Box<dyn Error>> {
+    let response = client
+        .get(GITHUB_API_URL)
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(format!("Failed to fetch templates: {}", response.status()).into());
+    }
+
+    let contents: Vec<GitHubContent> = response.json().await?;
+
+    let languages: Vec<String> = contents
+        .into_iter()
+        .filter_map(|content| {
+            if content.name.ends_with(".gitignore") {
+                Some(content.name.replace(".gitignore", ""))
+            } else {
+                None
+            }
+        }).collect();
+
+    Ok(languages)
+}
+
+async fn generate_gitignore(
+    client: &Client,
+    templates: &[String],
+    output_file: &str,
+) -> Result<(), Box<dyn Error>> {
+    let mut output = String::new();
+    output.push_str("# Generated gitignore file\n");
+    output.push_str("# Created with ignore-gen\n\n");
+
+    for template in templates {
+        let template_name = if template.ends_with(".gitignore") {
+            template.to_string()
+        } else {
+            format!("{}.gitignore", template)
+        };
+
+        let url = format!("{}/{}", RAW_CONTENT_BASE_URL, template_name);
+        let response = client.get(&url).send().await?;
+
+        if !response.status().is_success() {
+            eprintln!("Warning: Template '{}' not found", template);
+            continue;
+        }
+
+        let content = response.text().await?;
+        output.push_str(&format!("# ===== {} =====\n", template));
+        output.push_str(&content);
+        output.push_str("\n\n");
+    }
+
+    let path = Path::new(output_file);
+    let mut file = File::create(path)?;
+    file.write_all(output.as_bytes())?;
+
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubContent {
+    name: String,
+}
